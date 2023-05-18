@@ -1,6 +1,11 @@
 # gpt-commit-messages
 
-Command that has GPT3 draft commit messages for me
+## About
+
+Command that has GPT4 draft commit messages for me.
+
+Also looks for errors in diff.
+
 
 ## Installation
 
@@ -61,3 +66,11 @@ remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
 To github.com:ninjaa/gpt-commit-messages.git
    5ccf1ba..6d492b7  main -> main
 ```
+
+## License
+
+MIT
+
+## Author
+
+Aditya Advani
