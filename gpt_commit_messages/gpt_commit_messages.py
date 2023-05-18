@@ -74,6 +74,12 @@ def print_prompt(repo_path):
 @click.argument('repo_path', type=click.Path(exists=True), default=os.getcwd())
 @click.pass_context
 def generate_commit_message(ctx, repo_path):
+    # Check if there are uncommitted changes
+    git_status = subprocess.run(['git', '-C', repo_path, 'status',
+                                '--porcelain'], capture_output=True, text=True).stdout.strip()
+    if git_status and click.confirm(f'There are uncommitted changes\n.{git_status}\nDo you want to add them?'):
+        subprocess.run(['git', '-C', repo_path, 'add', '-A'], check=True)
+
     commit = ctx.obj.get('COMMIT', False)
     push = ctx.obj.get('PUSH', False)
 
@@ -86,19 +92,12 @@ def generate_commit_message(ctx, repo_path):
     click.echo("\n")
 
     error_prompt = generate_error_prompt(repo_path)
-
     click.echo("Checking for errors using GPT4.")
     error_message = get_openai_response(error_prompt, error_check=True)
 
     if error_message.strip():
         click.echo("Potential issues found:\n", err=True)
         click.echo(error_message, err=True)
-
-    # Check if there are uncommitted changes
-    git_status = subprocess.run(['git', '-C', repo_path, 'status',
-                                '--porcelain'], capture_output=True, text=True).stdout.strip()
-    if git_status and click.confirm('There are uncommitted changes. Do you want to add them?'):
-        subprocess.run(['git', '-C', repo_path, 'add', '-A'], check=True)
 
     committed = False
     if commit or click.confirm('Commit?'):

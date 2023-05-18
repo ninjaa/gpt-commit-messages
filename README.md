@@ -17,5 +17,8 @@ System must have Python3
 6. Add following alias to your bashrc
 `alias gpt_commit='poetry run python /path/to/your/script/main.py'`
 
+### Example usage
+
+`
 
 
