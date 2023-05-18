@@ -2,7 +2,7 @@
 
 ## About
 
-Command that has GPT4 draft commit messages for me.
+Command that has GPT4 draft git commit messages for me.
 
 Also looks for errors in diff.
 
