@@ -3,6 +3,8 @@ import openai
 import os
 import subprocess
 
+from lib.count_tokens import count_tokens, encode_tokens, decode_tokens
+
 
 def get_openai_response(prompt, error_check=False):
     if error_check:
@@ -25,20 +27,24 @@ def get_openai_response(prompt, error_check=False):
     return response.choices[0].message["content"]
 
 
-def get_diffs(repo_path):
-    process = subprocess.run(['git', '-C', repo_path, 'diff', 'HEAD'],
+def get_staged_diffs(repo_path):
+    process = subprocess.run(['git', '-C', repo_path, 'diff', 'HEAD', '--staged'],
                              stdout=subprocess.PIPE, universal_newlines=True)
     diffs = process.stdout
 
-    if len(diffs) > 6000:
-        click.echo("Diff is too large, truncating.", err=True)
-        diffs = diffs[:6000]
+    num_tokens = count_tokens(diffs)
+
+    if num_tokens > 3000:
+        click.echo(
+            f"Diff at {len(diffs)} chars, {num_tokens} tokens is too large, truncating.", err=True)
+        tokens = encode_tokens(diffs)
+        diffs = decode_tokens(tokens[:3000])
 
     return diffs
 
 
 def generate_commit_prompt(repo_path):
-    diffs = get_diffs(repo_path)
+    diffs = get_staged_diffs(repo_path)
     prompt = "I have a code change with the following diffs:\n"
     prompt += diffs
     prompt += "\nWhat should be the commit message for this change? Please categorize the commit type as one of the following: [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]. The first line of the commit message should be of the format <commit type>: <commit message>, where the length of commit_message should be no more than 50 characters. Feel free to add a few more bullet points with more details if relevant. Put a newline between the short message and the details."
@@ -47,7 +53,7 @@ def generate_commit_prompt(repo_path):
 
 
 def generate_error_prompt(repo_path):
-    diffs = get_diffs(repo_path)
+    diffs = get_staged_diffs(repo_path)
     return "Please find errors or significant design flaws in the following code diffs:\n" + diffs + \
         "\nBe succint and don't mention generic tips like recommending adding comments. If errors are found, please suggest a fix along with code for the fix. Mention line numbers etc where things are found. Succintness++ ty ty. Do not draft a commit message. Return blank if nothing notable is found."
 
@@ -74,17 +80,28 @@ def print_prompt(repo_path):
 @click.argument('repo_path', type=click.Path(exists=True), default=os.getcwd())
 @click.pass_context
 def generate_commit_message(ctx, repo_path):
-    # Check if there are uncommitted changes
-    git_status = subprocess.run(['git', '-C', repo_path, 'status',
-                                '--porcelain'], capture_output=True, text=True).stdout.strip()
-    if git_status and click.confirm(f'There are uncommitted changes\n.{git_status}\nDo you want to add them?'):
-        subprocess.run(['git', '-C', repo_path, 'add', '-A'], check=True)
+    # Get the staged changes
+    staged_changes = subprocess.run(['git', '-C', repo_path, 'diff', '--staged', '--name-only'],
+                                    capture_output=True, text=True).stdout.strip()
+    if staged_changes:
+        click.echo(
+            f'The following changes are staged for the next commit:\n{staged_changes}\n')
+
+    # Get the unstaged changes
+    unstaged_changes = subprocess.run(['git', '-C', repo_path, 'status', '--porcelain'],
+                                      capture_output=True, text=True).stdout.strip()
+
+    if unstaged_changes:
+        click.echo(
+            f'The following changes are not staged for commit:\n{unstaged_changes}\n')
+        if click.confirm('Do you want to stage these changes?'):
+            subprocess.run(['git', '-C', repo_path, 'add', '-A'], check=True)
 
     commit = ctx.obj.get('COMMIT', False)
     push = ctx.obj.get('PUSH', False)
 
     prompt = generate_commit_prompt(repo_path)
-    click.echo("Getting commit message from OpenAI.")
+    click.echo("\nGetting commit message from OpenAI.")
     commit_message = get_openai_response(prompt).strip()
 
     click.echo("Commit message:\n")
