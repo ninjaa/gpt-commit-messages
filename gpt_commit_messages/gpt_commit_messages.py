@@ -25,7 +25,7 @@ def get_openai_response(prompt, error_check=False):
     return response.choices[0].message["content"]
 
 
-def generate_prompt(repo_path):
+def get_diffs(repo_path):
     process = subprocess.run(['git', '-C', repo_path, 'diff', 'HEAD'],
                              stdout=subprocess.PIPE, universal_newlines=True)
     diffs = process.stdout
@@ -34,11 +34,22 @@ def generate_prompt(repo_path):
         click.echo("Diff is too large, truncating.", err=True)
         diffs = diffs[:6000]
 
+    return diffs
+
+
+def generate_commit_prompt(repo_path):
+    diffs = get_diffs(repo_path)
     prompt = "I have a code change with the following diffs:\n"
     prompt += diffs
     prompt += "\nWhat should be the commit message for this change? Please categorize the commit type as one of the following: [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]. The first line of the commit message should be of the format <commit type>: <commit message>, where the length of commit_message should be no more than 50 characters. Feel free to add a few more bullet points with more details if relevant. Put a newline between the short message and the details."
 
     return prompt
+
+
+def generate_error_prompt(repo_path):
+    diffs = get_diffs(repo_path)
+    return "Please find errors or significant design flaws in the following code diffs:\n" + diffs + \
+        "\nBe succint and don't mention generic tips like recommending adding comments. If errors are found, please suggest a fix along with code for the fix. Mention line numbers etc where things are found. Succintness++ ty ty. Do not draft a commit message. Return blank if nothing notable is found."
 
 
 @click.group(invoke_without_command=True)
@@ -56,7 +67,7 @@ def cli(ctx, commit, push):
 @click.command()
 @click.argument('repo_path', type=click.Path(exists=True), default=os.getcwd())
 def print_prompt(repo_path):
-    click.echo(generate_prompt(repo_path))
+    click.echo(generate_commit_prompt(repo_path))
 
 
 @click.command()
@@ -66,25 +77,36 @@ def generate_commit_message(ctx, repo_path):
     commit = ctx.obj.get('COMMIT', False)
     push = ctx.obj.get('PUSH', False)
 
-    prompt = generate_prompt(repo_path)
+    prompt = generate_commit_prompt(repo_path)
+    click.echo("Getting commit message from OpenAI.")
     commit_message = get_openai_response(prompt).strip()
 
-    prompt_error = "Please find errors or significant design flaws in the following code diffs:\n" + prompt + \
-        "\nBe succint and don't mention pointless things like adding comments. If errors are found, please suggest a fix along with code for the fix. Mention line numbers etc where things are found. Succintness++ ty ty."
-    error_message = get_openai_response(prompt_error, error_check=True)
+    click.echo("Commit message:\n")
+    click.echo(commit_message)
+    click.echo("\n")
+
+    error_prompt = generate_error_prompt(repo_path)
+
+    click.echo("Checking for errors using GPT4.")
+    error_message = get_openai_response(error_prompt, error_check=True)
 
     if error_message.strip():
         click.echo("Potential issues found:\n", err=True)
         click.echo(error_message, err=True)
 
-    click.echo("Commit message:\n")
-    click.echo(commit_message)
+    # Check if there are uncommitted changes
+    git_status = subprocess.run(['git', '-C', repo_path, 'status',
+                                '--porcelain'], capture_output=True, text=True).stdout.strip()
+    if git_status and click.confirm('There are uncommitted changes. Do you want to add them?'):
+        subprocess.run(['git', '-C', repo_path, 'add', '-A'], check=True)
 
-    if commit:
+    committed = False
+    if commit or click.confirm('Commit?'):
         subprocess.run(['git', '-C', repo_path, 'commit',
                        '-m', commit_message], check=True)
+        committed = True
 
-    if push:
+    if committed and (push or click.confirm('Push?')):
         subprocess.run(['git', '-C', repo_path, 'push'], check=True)
 
 
