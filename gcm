@@ -5,7 +5,7 @@ CUR_PATH=`pwd`
 FILE_PATH=`readlink -f "${BASH_SOURCE:-$0}"`
 DIR_PATH=`dirname $FILE_PATH`
 cd $DIR_PATH
-POETRY_PATH=`poetry env info --path`
+POETRY_PATH=`poetry show -v 2> /dev/null | head -n1 | cut -d ' ' -f 3`
 PYTHON3_PATH="$POETRY_PATH/bin/python"
 SCRIPT_DIR_PATH="$DIR_PATH/gpt_commit_messages"
 
