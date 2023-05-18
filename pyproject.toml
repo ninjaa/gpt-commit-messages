@@ -11,6 +11,7 @@ packages = [{include = "gpt_commit_messages"}]
 python = ">=3.11,<3.12"
 openai = "^0.27.6"
 click = "^8.1.3"
+tiktoken = "^0.4.0"
 
 
 [build-system]
