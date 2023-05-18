@@ -71,6 +71,7 @@ To github.com:ninjaa/gpt-commit-messages.git
 
 MIT
 
-## Author
+## Authors
 
 Aditya Advani
++ GPT4
