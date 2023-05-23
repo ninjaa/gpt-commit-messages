@@ -76,6 +76,37 @@ def print_prompt(repo_path):
     click.echo(generate_commit_prompt(repo_path))
 
 
+def commit_or_edit(repo_path, commit_message, force_commit=False):
+
+    if force_commit:
+        click.echo('Committing changes...')
+        # commit the changes here
+        subprocess.run(['git', '-C', repo_path, 'commit',
+                       '-m', commit_message], check=True)
+        return True
+
+    option = click.prompt(
+        'Do you want to commit changes? (y/n/e for edit)', type=str)
+    if option.lower() == 'y':
+        click.echo('Committing changes...')
+        # commit the changes here
+        subprocess.run(['git', '-C', repo_path, 'commit',
+                       '-m', commit_message], check=True)
+        return True
+    elif option.lower() == 'e':
+        click.echo('Editing changes...')
+        # edit the changes here
+        subprocess.run(['git', '-C', repo_path, 'commit',
+                       '-e', '-m', commit_message], check=True)
+        return True
+    elif option.lower() == 'n':
+        click.echo('Not committing changes.')
+    else:
+        click.echo('Invalid option')
+
+    return False
+
+
 @click.command()
 @click.argument('repo_path', type=click.Path(exists=True), default=os.getcwd())
 @click.pass_context
@@ -116,11 +147,7 @@ def generate_commit_message(ctx, repo_path):
         click.echo("Potential issues found:\n", err=True)
         click.echo(error_message, err=True)
 
-    committed = False
-    if commit or click.confirm('Commit?'):
-        subprocess.run(['git', '-C', repo_path, 'commit',
-                       '-m', commit_message], check=True)
-        committed = True
+    committed = commit_or_edit(repo_path, commit_message, commit)
 
     if committed and (push or click.confirm('Push?')):
         subprocess.run(['git', '-C', repo_path, 'push'], check=True)
