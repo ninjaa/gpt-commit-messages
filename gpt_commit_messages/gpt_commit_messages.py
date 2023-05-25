@@ -1,4 +1,5 @@
 import click
+import concurrent.futures
 import openai
 import os
 import subprocess
@@ -119,33 +120,52 @@ def generate_commit_message(ctx, repo_path):
             f'The following changes are staged for the next commit:\n{staged_changes}\n')
 
     # Get the unstaged changes
-    unstaged_changes = subprocess.run(['git', '-C', repo_path, 'status', '--porcelain'],
+    unstaged_changes = subprocess.run(['git', '-C', repo_path, 'diff', '--name-only'],
                                       capture_output=True, text=True).stdout.strip()
 
-    if unstaged_changes:
+    # Get the untracked files
+    untracked_files = subprocess.run(['git', '-C', repo_path, 'ls-files', '--others', '--exclude-standard'],
+                                     capture_output=True, text=True).stdout.strip()
+
+    unstaged_and_untracked = "\n".join(
+        [unstaged_changes, untracked_files]).strip()
+    if unstaged_and_untracked:
         click.echo(
-            f'The following changes are not staged for commit:\n{unstaged_changes}\n')
+            f'The following changes are not staged for commit:\n{unstaged_and_untracked}\n')
         if click.confirm('Do you want to stage these changes?'):
             subprocess.run(['git', '-C', repo_path, 'add', '-A'], check=True)
 
     commit = ctx.obj.get('COMMIT', False)
     push = ctx.obj.get('PUSH', False)
 
-    prompt = generate_commit_prompt(repo_path)
-    click.echo("\nGetting commit message from OpenAI.")
-    commit_message = get_openai_response(prompt).strip()
+    # get the commit message and error analysis from GPT4 both asynchronously at the same time
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        prompt = generate_commit_prompt(repo_path)
+        error_prompt = generate_error_prompt(repo_path)
 
-    click.echo("Commit message:\n")
-    click.echo(commit_message)
-    click.echo("\n")
+        future_to_message = {
+            executor.submit(get_openai_response, prompt): "commit",
+            executor.submit(get_openai_response, error_prompt, error_check=True): "error",
+        }
 
-    error_prompt = generate_error_prompt(repo_path)
-    click.echo("Checking for errors using GPT4.")
-    error_message = get_openai_response(error_prompt, error_check=True)
-
-    if error_message.strip():
-        click.echo("Potential issues found:\n", err=True)
-        click.echo(error_message, err=True)
+        for future in concurrent.futures.as_completed(future_to_message):
+            msg_type = future_to_message[future]
+            try:
+                data = future.result()
+            except Exception as exc:
+                click.echo(
+                    f'{msg_type} generated an exception: {exc}\n', err=True)
+            else:
+                if msg_type == "commit":
+                    commit_message = data.strip()
+                    click.echo("Commit message:\n")
+                    click.echo(commit_message)
+                    click.echo("\n")
+                else:
+                    error_message = data.strip()
+                    if error_message:
+                        click.echo("Potential issues found:\n", err=True)
+                        click.echo(error_message, err=True)
 
     committed = commit_or_edit(repo_path, commit_message, commit)
 
