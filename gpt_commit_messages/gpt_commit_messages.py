@@ -48,7 +48,7 @@ def generate_commit_prompt(repo_path):
     diffs = get_staged_diffs(repo_path)
     prompt = "I have a code change with the following diffs:\n"
     prompt += diffs
-    prompt += "\nWhat should be the commit message for this change? Please categorize the commit type as one of the following: [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]. The first line of the commit message should be of the format <commit type>: <commit message>, where the length of commit_message should be no more than 50 characters. Feel free to add a few more bullet points with more details if relevant. Put a newline between the short message and the details."
+    prompt += "\nWhat should be the commit message for this change? Please categorize the commit type as one of the following: [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]. The first line of the commit message should be of the format <commit type>: <commit message>, where the length of commit_message should be no more than 50 characters. Feel free to add a few more bullet points with more details if relevant. Put one or two newlines (`\\n` characters) between the short message and the details."
 
     return prompt
 
@@ -170,7 +170,22 @@ def generate_commit_message(ctx, repo_path):
     committed = commit_or_edit(repo_path, commit_message, commit)
 
     if committed and (push or click.confirm('Push?')):
-        subprocess.run(['git', '-C', repo_path, 'push'], check=True)
+        # Get the current branch name
+        current_branch = subprocess.run(['git', '-C', repo_path, 'branch', '--show-current'],
+                                        capture_output=True, text=True).stdout.strip()
+
+        # Check if the remote branch exists
+        remote_exists = subprocess.run(['git', '-C', repo_path, 'ls-remote', '--heads', 'origin', current_branch],
+                                       capture_output=True, text=True).stdout.strip()
+
+        if not remote_exists:
+            click.echo(
+                f'The remote branch for {current_branch} does not exist.\n')
+            if click.confirm('Would you like to create a pull request?'):
+                subprocess.run(['gh', 'pr', 'create', '--title',
+                                commit_message], check=True)
+        else:
+            subprocess.run(['git', '-C', repo_path, 'push'], check=True)
 
 
 cli.add_command(print_prompt)
